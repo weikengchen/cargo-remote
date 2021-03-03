@@ -4,43 +4,90 @@
 (at least for now). If you want to test it please create a VM or at least a separate
 user on your build host***
 
-## Why I built it
-One big annoyance when working on rust projects on my notebook are the compile
-times. Since I'm using rust nightly for some of my projects I have to recompile
-rather often. Currently there seem to be no good remote-build integrations for
-rust, so I decided to build one my own.
+## Build Guide
 
-## Planned capabilities
-This first version is very simple (could have been a bash script), but I intend to
-enhance it to a point where it detects compatibility between local and remote
-versions, allows (nearly) all cargo commands and maybe even load distribution
-over multiple machines.
+### Install `rsync`
+
+On macOS, run:
+```bash
+brew install rsync
+```
+(It was reported that the `rsync` version shipped with macOS does not support the progress flag and thus fails when
+`cargo-remote` tries to use it.)
+
+### Install `cargo-remote`
+
+Then, to install `cargo-remote`, run:
+```bash
+git clone https://github.com/howardwu/cargo-remote
+cargo install --path cargo-remote/
+```
+
+### Configure `ssh`
+
+1. Spin up a remote server (e.g. EC2) with __Ubuntu 20.04__.
+
+2. Configure your `~/.ssh/config` with the following:
+```
+Host {INSTANCE_NAME}
+    HostName {IP_ADDRESS}
+    User {USER}
+    IdentityFile {~/PATH/TO/PEM}
+    Port 22
+```
+
+3. SSH into your remote server once to save the IP address to your `authorized_keys`.
+
+4. While you are SSH'ed in, run the following:
+```
+sudo apt-get update
+sudo apt-get upgrade
+sudo apt-get install -y \
+    build-essential \
+    clang \
+    gcc \
+    git \
+    libssl-dev \
+    llvm \
+    make \
+    pkg-config \
+    tmux \
+    xz-utils
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+```
+
+### Configure `cargo-remote`
+
+1. To inform `cargo-remote` about your remote server, run:
+```bash
+mkdir ~/.config/cargo-remote
+touch ~/.config/cargo-remote/.cargo-remote.toml
+```
+
+2. In your `.cargo-remote.toml` file, add the following line:
+```toml
+remote={USER}@{IP_ADDRESS}
+```
+
+Note: you can alternatively place the `.cargo-remote.toml` at the root of your crate
+if you don't want it to be global.
 
 ## Usage
-For now only `cargo remote [FLAGS] [OPTIONS] <command>` works: it copies the
-current project to a temporary directory (`~/remote-builds/<project_name>`) on
-the remote server, calls `cargo <command>` remotely and optionally (`-c`) copies
-back the resulting target folder. This assumes that server and client are running
-the same rust version and have the same processor architecture. On the client `ssh`
-and `rsync` need to be installed.
 
-If you want to pass remote flags you have to end the options/flags section using
-`--`. E.g. to build in release mode and copy back the result use:
+To execute a Cargo command remotely, run:
 ```bash
-cargo remote -c -- build --release
+cargo remote -c -r {INSTANCE_NAME} -- {YOUR NORMAL CARGO COMMAND}
 ```
 
-### Configuration
-You can place a config file called `.cargo-remote.toml` in the same directory as your
-`Cargo.toml` or at `~/.config/cargo-remote/cargo-remote.toml`. There you can define a
-default remote build host and user. It can be overridden by the `-r` flag.
-
-Example config file:
-```toml
-remote = "builds@myserver"
+For example, if you want to `cargo build`, run:
+```bash
+cargo remote -c -r {INSTANCE_NAME} -- build
 ```
 
-### Flags and options
+### Flags & Options
 ```
 USAGE:
     cargo remote [FLAGS] [OPTIONS] <command> [remote options]...
@@ -65,17 +112,41 @@ ARGS:
 
 ```
 
+## That's it.
 
-## How to install
+## Leftover "stuff" from the original repo (you can ignore)
+
+For now only `cargo remote [FLAGS] [OPTIONS] <command>` works: it copies the
+current project to a temporary directory (`~/remote-builds/<project_name>`) on
+the remote server, calls `cargo <command>` remotely and optionally (`-c`) copies
+back the resulting target folder. This assumes that server and client are running
+the same rust version and have the same processor architecture. On the client `ssh`
+and `rsync` need to be installed.
+
+If you want to pass remote flags you have to end the options/flags section using
+`--`. E.g. to build in release mode and copy back the result use:
 ```bash
-git clone https://github.com/sgeisler/cargo-remote
-cargo install --path cargo-remote/
+cargo remote -c -- build --release
 ```
 
-### MacOS Problems
-It was reported that the `rsync` version shipped with MacOS doesn't support the progress flag and thus fails when
-`cargo-remote` tries to use it. You can install a newer version by running
-```bash
-brew install rsync
+### Configuration
+You can place a config file called `.cargo-remote.toml` in the same directory as your
+`Cargo.toml` or at `~/.config/cargo-remote/cargo-remote.toml`. There you can define a
+default remote build host and user. It can be overridden by the `-r` flag.
+
+Example config file:
+```toml
+remote = "builds@myserver"
 ```
-See also [#10](https://github.com/sgeisler/cargo-remote/issues/10).
+
+## Why I built it
+One big annoyance when working on rust projects on my notebook are the compile
+times. Since I'm using rust nightly for some of my projects I have to recompile
+rather often. Currently there seem to be no good remote-build integrations for
+rust, so I decided to build one my own.
+
+## Planned capabilities
+This first version is very simple (could have been a bash script), but I intend to
+enhance it to a point where it detects compatibility between local and remote
+versions, allows (nearly) all cargo commands and maybe even load distribution
+over multiple machines.
