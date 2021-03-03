@@ -79,12 +79,12 @@ if you don't want it to be global.
 
 To execute a Cargo command remotely, run:
 ```bash
-cargo remote -c -r {INSTANCE_NAME} -- {YOUR NORMAL CARGO COMMAND}
+cargo remote -r {INSTANCE_NAME} -- {YOUR NORMAL CARGO COMMAND}
 ```
 
 For example, if you want to `cargo build`, run:
 ```bash
-cargo remote -c -r {INSTANCE_NAME} -- build
+cargo remote -r {INSTANCE_NAME} -- build
 ```
 
 ### Flags & Options
