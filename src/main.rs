@@ -36,8 +36,8 @@ enum Opts {
         #[structopt(
             short = "e",
             long = "env",
-            help = "Environment profile. default_value = /etc/profile",
-            default_value = "/etc/profile"
+            help = "Environment profile. default_value = source ~/.cargo/env",
+            default_value = "~/.cargo/env"
         )]
         env: String,
 
