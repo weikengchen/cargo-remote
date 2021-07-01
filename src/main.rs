@@ -184,14 +184,34 @@ fn main() {
             error!("Failed to transfer project to build server (error: {})", e);
             exit(-4);
         });
+
+    let current_path = std::env::current_dir().unwrap_or_else(|e| {
+        error!("Failed to obtain the current path (error: {})", e);
+        exit(-8);
+    }).into_os_string();
+
+    let mut get_relative_path = Command::new("realpath");
+    info!("Relative to: {:?}", project_dir.to_string_lossy());
+    info!("Relative from: {:?}", current_path);
+
+    let current_relative_path =  String::from_utf8(get_relative_path.arg(format!("--relative-to={}", project_dir.to_string_lossy())).arg(current_path).output().unwrap_or_else(|e| {
+        error!("Failed to compute the relative path (error: {})", e);
+        exit(-9);
+    }).stdout).unwrap_or_else(|e| {
+        error!("Failed to compute the relative path (error: {})", e);
+        exit(-9);
+    });
+
     info!("Build ENV: {:?}", build_env);
     info!("Environment profile: {:?}", env);
     info!("Build path: {:?}", build_path);
+    info!("Sub directory: {:?}", current_relative_path.trim());
     let build_command = format!(
-        "source {}; rustup default {}; cd {}; {} cargo {} {}",
+        "source {}; rustup default {}; cd {}; cd {}; {} cargo {} {}",
         env,
         rustup_default,
         build_path,
+        current_relative_path.trim(),
         build_env,
         command,
         options.join(" ")
