@@ -1,14 +1,14 @@
-use std::path::{Path, PathBuf};
-use std::process::{exit, Command, Stdio};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::process::{exit, Command, Stdio};
 use structopt::StructOpt;
 use toml::Value;
 
 use log::{error, info, warn, LevelFilter};
+use simple_logger::SimpleLogger;
 use std::ffi::OsString;
 use std::str::FromStr;
-use simple_logger::SimpleLogger;
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
@@ -64,10 +64,7 @@ enum Opts {
         )]
         hidden: bool,
 
-        #[structopt(
-        long = "debug",
-        help = "Show all the info logs"
-        )]
+        #[structopt(long = "debug", help = "Show all the info logs")]
         debug: bool,
 
         #[structopt(help = "cargo command that will be executed remotely")]
@@ -127,7 +124,10 @@ fn main() {
     } = Opts::from_args();
 
     if !debug {
-        SimpleLogger::new().with_level(LevelFilter::Warn).init().unwrap();
+        SimpleLogger::new()
+            .with_level(LevelFilter::Warn)
+            .init()
+            .unwrap();
     } else {
         SimpleLogger::new().init().unwrap();
     }
@@ -143,16 +143,24 @@ fn main() {
         if Path::new(path.as_str()).exists() {
             break;
         } else {
-            let new_path = Path::new(cargo_file_path.as_str()).parent().unwrap_or_else(|| {
-                error!("Failed to find the Cargo.toml file");
-                exit(-8);
-            }).to_path_buf().into_os_string().into_string().unwrap();
+            let new_path = Path::new(cargo_file_path.as_str())
+                .parent()
+                .unwrap_or_else(|| {
+                    error!("Failed to find the Cargo.toml file");
+                    exit(-8);
+                })
+                .to_path_buf()
+                .into_os_string()
+                .into_string()
+                .unwrap();
             cargo_file_path = new_path.clone();
         }
     }
 
     let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
-    metadata_cmd.manifest_path(format!("{}/Cargo.toml", cargo_file_path)).no_deps();
+    metadata_cmd
+        .manifest_path(format!("{}/Cargo.toml", cargo_file_path))
+        .no_deps();
 
     let project_metadata = metadata_cmd.exec().unwrap();
     let project_dir = project_metadata.workspace_root;
@@ -216,10 +224,18 @@ fn main() {
 
     let mut get_relative_path = Command::new("realpath");
 
-    let current_relative_path =  String::from_utf8(get_relative_path.arg(format!("--relative-to={}", project_dir.to_string_lossy())).arg(current_path.into_os_string()).output().unwrap_or_else(|e| {
-        error!("Failed to compute the relative path (error: {})", e);
-        exit(-9);
-    }).stdout).unwrap_or_else(|e| {
+    let current_relative_path = String::from_utf8(
+        get_relative_path
+            .arg(format!("--relative-to={}", project_dir.to_string_lossy()))
+            .arg(current_path.into_os_string())
+            .output()
+            .unwrap_or_else(|e| {
+                error!("Failed to compute the relative path (error: {})", e);
+                exit(-9);
+            })
+            .stdout,
+    )
+    .unwrap_or_else(|e| {
         error!("Failed to compute the relative path (error: {})", e);
         exit(-9);
     });
@@ -261,8 +277,15 @@ fn main() {
             .arg("--delete")
             .arg("--compress")
             .arg("--info=progress2")
-            .arg(format!("{}:{}/target/{}", build_server, build_path, file_name))
-            .arg(format!("{}/target/{}", project_dir.to_string_lossy(), file_name))
+            .arg(format!(
+                "{}:{}/target/{}",
+                build_server, build_path, file_name
+            ))
+            .arg(format!(
+                "{}/target/{}",
+                project_dir.to_string_lossy(),
+                file_name
+            ))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
