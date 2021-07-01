@@ -5,7 +5,10 @@ use std::hash::{Hash, Hasher};
 use structopt::StructOpt;
 use toml::Value;
 
-use log::{error, info, warn};
+use log::{error, info, warn, LevelFilter};
+use std::ffi::OsString;
+use std::str::FromStr;
+use simple_logger::SimpleLogger;
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
@@ -55,19 +58,17 @@ enum Opts {
         no_copy_lock: bool,
 
         #[structopt(
-            long = "manifest-path",
-            help = "Path to the manifest to execute",
-            default_value = "Cargo.toml",
-            parse(from_os_str)
-        )]
-        manifest_path: PathBuf,
-
-        #[structopt(
             short = "h",
             long = "transfer-hidden",
             help = "Transfer hidden files and directories to the build server"
         )]
         hidden: bool,
+
+        #[structopt(
+        long = "debug",
+        help = "Show all the info logs"
+        )]
+        debug: bool,
 
         #[structopt(help = "cargo command that will be executed remotely")]
         command: String,
@@ -82,25 +83,29 @@ enum Opts {
 
 /// Tries to parse the file [`config_path`]. Logs warnings and returns [`None`] if errors occur
 /// during reading or parsing, [`Some(Value)`] otherwise.
-fn config_from_file(config_path: &Path) -> Option<Value> {
+fn config_from_file(config_path: &Path, silence: bool) -> Option<Value> {
     let config_file = std::fs::read_to_string(config_path)
         .map_err(|e| {
-            warn!(
-                "Can't parse config file '{}' (error: {})",
-                config_path.to_string_lossy(),
-                e
-            );
+            if !silence {
+                warn!(
+                    "Can't parse config file '{}' (error: {})",
+                    config_path.to_string_lossy(),
+                    e
+                );
+            }
         })
         .ok()?;
 
     let value = config_file
         .parse::<Value>()
         .map_err(|e| {
-            warn!(
-                "Can't parse config file '{}' (error: {})",
-                config_path.to_string_lossy(),
-                e
-            );
+            if !silence {
+                warn!(
+                    "Can't parse config file '{}' (error: {})",
+                    config_path.to_string_lossy(),
+                    e
+                );
+            }
         })
         .ok()?;
 
@@ -108,8 +113,6 @@ fn config_from_file(config_path: &Path) -> Option<Value> {
 }
 
 fn main() {
-    simple_logger::init().unwrap();
-
     let Opts::Remote {
         remote,
         build_env,
@@ -117,26 +120,52 @@ fn main() {
         env,
         copy_back,
         no_copy_lock,
-        manifest_path,
         hidden,
+        debug,
         command,
         options,
     } = Opts::from_args();
 
+    if !debug {
+        SimpleLogger::new().with_level(LevelFilter::Warn).init().unwrap();
+    } else {
+        SimpleLogger::new().init().unwrap();
+    }
+
+    let current_path = std::env::current_dir().unwrap_or_else(|e| {
+        error!("Failed to obtain the current path (error: {})", e);
+        exit(-8);
+    });
+
+    let mut cargo_file_path = current_path.clone().into_os_string().into_string().unwrap();
+    loop {
+        let path = format!("{}/Cargo.toml", cargo_file_path);
+        if Path::new(path.as_str()).exists() {
+            break;
+        } else {
+            let new_path = Path::new(cargo_file_path.as_str()).parent().unwrap_or_else(|| {
+                error!("Failed to find the Cargo.toml file");
+                exit(-8);
+            }).to_path_buf().into_os_string().into_string().unwrap();
+            cargo_file_path = new_path.clone();
+        }
+    }
+
     let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
-    metadata_cmd.manifest_path(manifest_path).no_deps();
+    metadata_cmd.manifest_path(format!("{}/Cargo.toml", cargo_file_path)).no_deps();
 
     let project_metadata = metadata_cmd.exec().unwrap();
     let project_dir = project_metadata.workspace_root;
-    info!("Project dir: {:?}", project_dir);
 
     let configs = vec![
-        config_from_file(&project_dir.join(".cargo-remote.toml")),
+        config_from_file(&project_dir.join(".cargo-remote.toml"), true),
         xdg::BaseDirectories::with_prefix("cargo-remote")
             .ok()
             .and_then(|base| base.find_config_file("cargo-remote.toml"))
-            .and_then(|p: PathBuf| config_from_file(&p)),
+            .and_then(|p: PathBuf| config_from_file(&p, false)),
     ];
+
+    info!("Project dir: {:?}", project_dir);
 
     // TODO: move Opts::Remote fields into own type and implement complete_from_config(&mut self, config: &Value)
     let build_server = remote
@@ -185,16 +214,9 @@ fn main() {
             exit(-4);
         });
 
-    let current_path = std::env::current_dir().unwrap_or_else(|e| {
-        error!("Failed to obtain the current path (error: {})", e);
-        exit(-8);
-    }).into_os_string();
-
     let mut get_relative_path = Command::new("realpath");
-    info!("Relative to: {:?}", project_dir.to_string_lossy());
-    info!("Relative from: {:?}", current_path);
 
-    let current_relative_path =  String::from_utf8(get_relative_path.arg(format!("--relative-to={}", project_dir.to_string_lossy())).arg(current_path).output().unwrap_or_else(|e| {
+    let current_relative_path =  String::from_utf8(get_relative_path.arg(format!("--relative-to={}", project_dir.to_string_lossy())).arg(current_path.into_os_string()).output().unwrap_or_else(|e| {
         error!("Failed to compute the relative path (error: {})", e);
         exit(-9);
     }).stdout).unwrap_or_else(|e| {
